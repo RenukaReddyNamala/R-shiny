@@ -1,0 +1,79 @@
+library(shiny)
+library(ggplot2)
+library(DT)
+library(caret)
+library(mlbench)
+library(randomForest)
+
+# Load dataset
+data(BreastCancer, package = "mlbench")
+BreastCancer <- na.omit(BreastCancer)
+BreastCancer$Class <- as.factor(BreastCancer$Class)
+BreastCancer <- BreastCancer[, -1]  # Remove ID column
+
+# Convert factors to numeric (except Class)
+BreastCancer[, -ncol(BreastCancer)] <- lapply(BreastCancer[, -ncol(BreastCancer)], as.numeric)
+
+# Define UI
+ui <- fluidPage(
+  titlePanel("Breast Cancer Data Analysis"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("xvar", "X-axis Variable:", choices = names(BreastCancer)[-ncol(BreastCancer)]),
+      selectInput("yvar", "Y-axis Variable:", choices = names(BreastCancer)[-ncol(BreastCancer)]),
+      selectInput("plotType", "Plot Type:", choices = c("Histogram", "Boxplot", "Scatterplot")),
+      actionButton("train", "Train Random Forest Model")
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Data Table", DTOutput("dataTable")),
+        tabPanel("Visualization", plotOutput("plot")),
+        tabPanel("Summary", verbatimTextOutput("summary")),
+        tabPanel("Model Accuracy", verbatimTextOutput("modelAcc"))
+      )
+    )
+  )
+)
+
+# Define Server
+server <- function(input, output, session) {
+  
+  output$dataTable <- renderDT({
+    datatable(BreastCancer)
+  })
+  
+  output$plot <- renderPlot({
+    if (input$plotType == "Histogram") {
+      ggplot(BreastCancer, aes_string(input$xvar)) +
+        geom_histogram(bins = 20, fill = "blue", alpha = 0.5)
+    } else if (input$plotType == "Boxplot") {
+      ggplot(BreastCancer, aes_string(x = "Class", y = input$xvar)) +
+        geom_boxplot()
+    } else if (input$plotType == "Scatterplot") {
+      ggplot(BreastCancer, aes_string(x = input$xvar, y = input$yvar, color = "Class")) +
+        geom_point()
+    }
+  })
+  
+  output$summary <- renderPrint({
+    summary(BreastCancer)
+  })
+  
+  observeEvent(input$train, {
+    set.seed(123)
+    trainIndex <- createDataPartition(BreastCancer$Class, p = 0.7, list = FALSE)
+    trainData <- BreastCancer[trainIndex, ]
+    testData <- BreastCancer[-trainIndex, ]
+    
+    model <- randomForest(Class ~ ., data = trainData, ntree = 100)
+    pred <- predict(model, testData)
+    acc <- confusionMatrix(pred, testData$Class)$overall["Accuracy"]
+    
+    output$modelAcc <- renderPrint({
+      paste("Random Forest Model Accuracy:", round(acc, 4))
+    })
+  })
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
